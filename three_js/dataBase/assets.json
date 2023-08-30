@@ -1,0 +1,20 @@
+{
+  "Room": [
+    {
+      "URL": "models/RoomForWebsite(Jpeg)_New.glb",
+      "Name": "sofa"
+    },
+    {
+      "URL": "models/sofa_room.glb",
+      "Name": "sofa"
+    },
+    {
+      "URL": "models/Floor_Lamp.glb",
+      "Name": "sofa"
+    },
+    {
+      "URL": "models/Sofa.glb",
+      "Name": "sofa"
+    }
+  ]
+ }
