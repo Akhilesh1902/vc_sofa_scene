@@ -1,114 +1,121 @@
-import { createCamera } from './components/camera.js';
-import { createScene } from './components/scene.js';
-import { createCameraControls } from './systems/cameraControls.js';
-import { createRenderer } from './systems/renderer.js';
-import { Resizer } from './systems/Resizer.js';
-import { basicControls } from './systems/basicControls.js';
-import { GUI } from 'three/examples/jsm/libs/lil-gui.module.min.js';
 import gltfLoad from './components/gltf_loader/gltfLoad.js';
-import { hdriLoad } from './components/hdri_loader/hdri_loader.js';
-import { Debug } from './systems/Debug.js';
-// import { SSAARenderPass } from 'three/addons/postprocessing/SSAARenderPass.js';
 import { Reflector } from 'three/examples/jsm/objects/Reflector.js';
 import {
   Clock,
   Vector3,
-  AmbientLight,
   RepeatWrapping,
   ShaderMaterial,
   TextureLoader,
   UniformsUtils,
   AnimationMixer,
   LoopOnce,
-  Color,
 } from 'three';
 import * as THREE from 'three';
-import { createEffectComposer } from './systems/effectComposer.js';
-import { GammaCorrectionShader } from '../node_modules/three/examples/jsm/shaders/GammaCorrectionShader.js';
-import { RenderPass } from '../node_modules/three/examples/jsm/postprocessing/RenderPass.js';
-import { ShaderPass } from '../node_modules/three/examples/jsm/postprocessing/ShaderPass.js';
+import { GammaCorrectionShader } from 'three/examples/jsm/shaders/GammaCorrectionShader.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { SubsurfaceScatteringShader } from 'three/examples/jsm/shaders/SubsurfaceScatteringShader.js';
-import { SSRPass } from 'three/addons/postprocessing/SSRPass.js';
-import { ReflectorForSSRPass } from 'three/addons/objects/ReflectorForSSRPass.js';
-import assets from './dataBase/assets.json' assert { type: 'json' };
-import { TAARenderPass } from '../node_modules/three/examples/jsm/postprocessing/TAARenderPass.js';
-import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
+import { TAARenderPass } from 'three/examples/jsm/postprocessing/TAARenderPass.js';
+import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 const container = document.querySelector('#scene-container');
 
 let camera;
 let renderer;
 let scene;
 let cameraControls;
-let debug;
-let clock;
 let composer;
-let ambientLightSun;
 
-let delta, gui;
-let animationClips = [],
-  mixer;
+let animationClips = [];
+let mixer;
 let prompt = document.getElementById('ar-prompt');
-let groundReflector, ssrPass, geometry, selects;
 
 let mobile = false;
 if (/Android|iPhone/i.test(navigator.userAgent)) {
   mobile = true;
 }
+let clock;
+const CDNURL = 'https://d1k067zjfgx0if.cloudfront.net/';
 
 class World {
   constructor() {
     this.container = container;
 
-    scene = createScene();
-    renderer = createRenderer();
-    renderer.info.autoReset = false;
-    composer = createEffectComposer(renderer);
+    scene = new THREE.Scene();
+    renderer = new THREE.WebGLRenderer({ antialias: true });
 
-    camera = createCamera();
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 0.8;
+    renderer.outputEncoding = THREE.sRGBEncoding;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.physicallyCorrectLights = true;
+    renderer.xr.enabled = true;
+    renderer.info.autoReset = false;
+
+    composer = new EffectComposer(renderer);
+
+    let val = 1;
+
+    if (mobile) {
+      val = 0.5;
+    }
+
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(window.devicePixelRatio * val);
+    composer.setSize(container.clientWidth, container.clientHeight);
+    composer.setPixelRatio(window.devicePixelRatio * val);
+
+    camera = new THREE.PerspectiveCamera(
+      40,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      1000
+    );
     scene.add(camera);
 
     renderer.domElement.addEventListener('pointermove', (e) => {
       prompt.style.display = 'none';
     });
 
-    clock = new Clock();
-    debug = new Debug();
-
     //WINDOW RESIZER
-    const resizer = new Resizer(
-      container,
-      camera,
-      renderer,
-      composer,
-      groundReflector
-    );
+
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+      renderer.setPixelRatio(window.devicePixelRatio * val);
+      composer.setSize(container.clientWidth, container.clientHeight);
+      composer.setPixelRatio(window.devicePixelRatio * val);
+    });
+
     container.append(renderer.domElement);
-    //Orbit Controlls for Camera
-    cameraControls = createCameraControls(camera, renderer.domElement);
+    cameraControls = new OrbitControls(camera, renderer.domElement);
+    cameraControls.enableDamping = true;
+    cameraControls.dampingFactor = 0.1;
+    cameraControls.enableZoom = true;
+    cameraControls.target.set(0.7, -0.1, 0);
     camera.position.set(-3.1, 4.165, 5.53);
     camera.updateMatrixWorld();
     camera.name = 'PerspectiveCamera';
-    basicControls(scene, camera, cameraControls, renderer);
+    cameraControls.maxDistance = 11;
+
     cameraControls.maxPolarAngle = Math.PI;
     cameraControls.minPolarAngle = 0;
-
     cameraControls.minDistance = 10;
+
+    clock = new Clock();
   }
   async loadBackground() {
-    const { background0, background1, hdri0, hdri1 } = await hdriLoad();
-    scene.environment = hdri0;
+    const hdriLoader = new RGBELoader();
+    const hdri = await hdriLoader.loadAsync(`${CDNURL}textures/hdri_map.hdr`);
+    hdri.mapping = THREE.EquirectangularReflectionMapping;
+    scene.environment = hdri;
   }
-  //LoadRoom
-  async loadRoomGLTF() {
-    let { gltfData } = await gltfLoad(assets.Room[0].URL, renderer);
-    let loadedmodel = gltfData.scene;
-    scene.add(loadedmodel);
-    console.log(scene);
-
-    renderer.render(scene, camera);
-  }
+  // LoadRoom
   async loadRoom() {
-    const { gltfData } = await gltfLoad(assets.Room[1].URL, renderer);
+    const { gltfData } = await gltfLoad(`${CDNURL}models/room.glb`);
     const loadedmodel = gltfData.scene;
     const room = loadedmodel;
     scene.add(room);
@@ -132,7 +139,7 @@ class World {
     console.log('room loaded', room);
   }
   async loadLamp() {
-    const { gltfData } = await gltfLoad(assets.Room[2].URL, renderer);
+    const { gltfData } = await gltfLoad(`${CDNURL}models/floor_lamp.glb`);
     const loadedmodel = gltfData.scene;
     const lamp = loadedmodel;
     scene.add(lamp);
@@ -158,7 +165,7 @@ class World {
     if (Point_Light.intensity > 0) {
       let LampTop = scene.getObjectByName('Lamp_Cover');
       let texLoader = new TextureLoader();
-      let subTexture = texLoader.load('textures/subSurface.jpg');
+      let subTexture = texLoader.load(`${CDNURL}textures/subSurface.jpg`);
       subTexture.wrapS = RepeatWrapping;
       subTexture.wrapT = RepeatWrapping;
       subTexture.repeat.set(4, 4);
@@ -188,12 +195,12 @@ class World {
     console.log('lamp loaded');
   }
   async loadSofa() {
-    const { gltfData } = await gltfLoad(assets.Room[3].URL, renderer);
+    const { gltfData } = await gltfLoad(`${CDNURL}models/sofa.glb`);
     const loadedmodel = gltfData.scene;
     const sofa = loadedmodel;
     scene.add(sofa);
     mixer = new AnimationMixer(loadedmodel);
-    //ANIMATION
+    // ANIMATION
     let animation = document.getElementById('animation');
     animation.addEventListener('click', function (e) {
       if (e.target.checked) {
@@ -205,7 +212,7 @@ class World {
         mixer.stopAllAction();
       }
     });
-    //VARIANTS
+    // VARIANTS
     let button = document.querySelectorAll('.button');
     for (let i = 0; i < 3; i++) {
       button[i].addEventListener('click', function () {
@@ -240,7 +247,6 @@ class World {
 
     const copyPass2 = new ShaderPass(GammaCorrectionShader);
     composer.addPass(copyPass2);
-    console.log('postprocessing completed');
   }
 
   start() {
@@ -252,8 +258,6 @@ class World {
 
       const delta = clock.getDelta();
       if (mixer) mixer.update(delta);
-      //DEBUG
-      debug.update(renderer);
     });
 
     //Spinner Remove after starting to render the scene
@@ -261,8 +265,6 @@ class World {
     loadingSpinner.remove();
     prompt.style.display = 'block';
     renderer.render(scene, camera);
-    //DEBUG
-    debug.displayStats();
   }
 }
 
